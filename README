@@ -1,0 +1,114 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=438
+
+Ment for c++ class data members; modify for others...
+Does not work with static data members. (see comment in script, easy enough to rem out the check if you like)
+
+The Although inserting both get and set member functions is currently hard coded the format (brace format and some buityfication of the var name) is handled by optional global option vars. NOTE you do not have to define anything unless you want different ouput from the default.
+
+NOTE this sniplet is in the .vim file
+"Place something like the below in your .vimrc or where ever you like to keep
+"    your global option vars and change as desired.
+""
+""*****************************************************************
+"" GETSET Options: {{{
+""*****************************************************************
+"" You are welcomed to email me if there is another format you would like for
+""    this, please include example code!
+"" See cppgetset.vim for more documtation.
+"" Member Function Name Prefix:
+""        0 for (default)
+""            "Get_"
+""            "Set_"
+""        else
+""            "get"
+""            "set"
+"let g:getset_StyleOfGetSetMethod                 = 1
+"" Brace Style:
+""        0 for (default)
+""            func()
+""            {
+""            }
+""        else
+""            func() {
+""            }
+"let g:getset_StyleOfBraces                       = 1
+"" HowTo Trim Var Prefix:
+""        1 for (default)
+""            if Var prefix is m_ remove the m so the prefix is _
+""            else prepend _
+""        2 for
+""            Prepend _
+""        else
+""            do not modify Var
+""    I.e.
+""        0 = m_lFlags    ->    m_lFlags
+""            mlFlags     ->    mlFlags
+""        1 = m_lFlags    ->    _lFlags
+""            mlFlags     ->    _mlFlags
+""        2 = m_lFlags    ->    __lFlags
+""            mlFlags     ->    _mlFlags
+"let g:getset_Trim_VarPrefix                      = 2
+"" Howto Trim Member Function Name Var Prefix:
+""        1 for (default)
+""            Remove m_
+""        2 for
+""            Remove m
+""        else
+""            do not modify Var
+"let g:getset_Trim_MemberFunctionNameVarPrefix    = 2
+"" }}}
+""
+
+
+
+
+
+Example:
+class CTester
+{
+    char    m_caBuffer[_MAX_PATH];
+    int        m_iLenBuffer; // 2
+    long    m_lFlags;
+    // Static member declaration.
+    // [Feral:275/02@15:02] this SHOULD abort out;
+    static long m_bytecount;
+}
+Place cursor on line with m_caBuffer and :GETSET
+Place cursor in .cpp file where you want the get/set member function implimentations and :GETSET gives you:
+
+
+// {{{
+/*!
+ * \brief    Get m_caBuffer.
+ *
+ * \return    m_caBuffer as a char.
+ */ // }}}
+char CTester::Get_caBuffer()
+{
+    return(m_caBuffer);
+}
+
+// {{{
+/*!
+ * \brief    Set m_caBuffer.
+ *
+ * \param    _caBuffer    The new value for m_caBuffer (as a char).
+ */ // }}}
+void CTester::Set_caBuffer(char _caBuffer)
+{
+    m_caBuffer = _caBuffer;
+    return;
+}
+
+
+Note in this example in particular you'll probably need to edit the actual code to get/set but this is a nice fast starting spot...
+Note the comment method used is suitable for Doxygen (I think!) easy enough to change though, email me and I'll add support for others... provide examples though!
+
+Note that you call :GETSET twice (I was playing with this idea--one less thing to remember) The function decides what to do based on the file extension. If :GETSET's attempt at being clever is incorect, or you want to place inline member functions you can easily overide what :GETSET does with the optional params g (get), p (put), i (inline), thus to place inline memberfunctions you :GETSET i
+
+Inspired by javaGetSet.vim by Tom Bast See: http://vim.sourceforge.net/script.php?script_id=436
+Register pasting origial idea from one of them scripts at vim.sf.net :)
+
+Also be sure to look at Luc Hermitte's cpp_InsertAccessors.vim (See: http://hermitte.free.fr/vim) it is basicaly superior (but a bit larger)
+
+Happy VIMing!
