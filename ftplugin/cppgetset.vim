@@ -2,40 +2,177 @@
 " vim60:fdm=marker
 " \file		cppgetset.vim
 "
-" \brief	Convert a data type definition into get/set data members.
+" \brief	Make get/set member functions for data members.
+"
+" \note		Luc Hermitte's cpp_InsertAccessors.vim is basicaly superior (but
+"			a bit larger)
+"			See: http://hermitte.free.fr/vim
+"
+" \note		This is VIM-Script #438
+"			See: http://vim.sourceforge.net/script.php?script_id=438
+"
 " \note		Inspired by javaGetSet.vim by Tom Bast
 "			See: http://vim.sourceforge.net/script.php?script_id=436
-" \note		Built on my previous work derived from Leif Wickland's VIM-Tip #335
-"			See: http://vim.sourceforge.net/tip_view.php?tip_id=335
-" \note		Register pasting origial idea from one of them scripts at
-"			vim.sf.net :)
 "
 " \author	Robert KellyIV <Sreny@SverGbc.Pbz> (Rot13ed)
 " \note		Emial addresses are Rot13ed. Place cursor in the <> and do a g?i<
-" \date		Mon, 07 Oct 2002 20:08 Pacific Daylight Time
-" \version	$Id$
-" Version:	0.1
+" \date		Thu, 17 Oct 2002 22:26 Pacific Daylight Time
+" \version	$Id: cppgetset.vim,v 1.1 2002/10/15 02:27:50 root Exp $
+" Version:	0.2
 " History:	{{{
-"
+"	[Feral:290/02@21:59] 0.2
+"		Some rather fancy changes / Misc improvments.
+"	Improvments:
+"		* More robust class/struct handling (from copycppdectoimp.vim 0.43)
+"		* Global vars for options to determin how the get set methods look.
+"		* Proper ftplugin, MUST be placed in ftplugin/cpp or the like.
 "	0.1
 "		Inspired by Tom Bast's javaGetSet.vim Revision: 1.3, Date: 2002/10/02 15:23:58.
-"
 " }}}
 
-if exists("loaded_cppgetset")
+"Place something like the below in your .vimrc or where ever you like to keep
+"	your global option vars and change as desired.
+""
+""*****************************************************************
+"" GETSET Options: {{{
+""*****************************************************************
+"" You are welcomed to email me if there is another format you would like for
+""	this, please include example code!
+"" See cppgetset.vim for more documtation.
+"" Member Function Name Prefix:
+""		0 for (default)
+""			"Get_"
+""			"Set_"
+""		else
+""			"get"
+""			"set"
+"let g:getset_StyleOfGetSetMethod				= 1
+"" Brace Style:
+""		0 for (default)
+""			func()
+""			{
+""			}
+""		else
+""			func() {
+""			}
+"let g:getset_StyleOfBraces						= 1
+"" HowTo Trim Var Prefix:
+""		1 for (default)
+""			if Var prefix is m_ remove the m so the prefix is _
+""			else prepend _
+""		2 for
+""			Prepend _
+""		else
+""			do not modify Var
+""	I.e.
+""		0 = m_lFlags	->	m_lFlags
+""			mlFlags		->	mlFlags
+""		1 = m_lFlags	->	_lFlags
+""			mlFlags		->	_mlFlags
+""		2 = m_lFlags	->	__lFlags
+""			mlFlags		->	_mlFlags
+"let g:getset_Trim_VarPrefix					= 2
+"" Howto Trim Member Function Name Var Prefix:
+""		1 for (default)
+""			Remove m_
+""		2 for
+""			Remove m
+""		else
+""			do not modify Var
+"let g:getset_Trim_MemberFunctionNameVarPrefix	= 2
+"" }}}
+""
+
+" TextLinks for where the options are used, update these spots when adding new
+"	options or changing/expanding existing options.
+"||@|"Handle Options:|
+"||@|"Do Something With The Options:|
+
+
+if exists("b:loaded_cppgetset")
 	finish
 endif
-let loaded_cppgetset = 1
+let b:loaded_cppgetset = 1
 
 
-function! <SID>CppGetSet() "{{{
-"	echo confirm(expand("%:e"))
-	if expand("%:e") ==? "h"
+"*****************************************************************
+" Functions: {{{
+if !exists("*s:CppGetSet(...)")
+" Info: {{{
+" Valid Params:
+" 0, h, g
+"	Get the var info
+" 1, c, p, 2, i
+"	Put the get/set member functions.
+" 2, i
+"	Put the get/set member functions, inline style
+" }}}
+function! s:CppGetSet(...) "{{{
+	let l:WhatToDo = 0 " 0 = get var, else put get/set membervars.
+	" [Feral:283/02@15:40] sort of guessing on extesions here.. I tend to only
+	"	use .h ...
+	if match(expand("%:e"), '\c\<h\>\|\<hpp\>\|\<hh\>\|\<hxx\>') > -1
+		let l:WhatToDo = 0
+	else
+		let l:WhatToDo = 1
+	endif
+
+	" Override: {{{
+	" Just for clarity override the above as a separate if
+	if a:0 == 1
+		if a:1 == '0' || a:1 ==? "h" || a:1 ==? "g"
+			let l:WhatToDo = 0
+"			let l:IsInline = 0 -- not used when getting. I want it to error
+"			(so I can fix it) if we some how get into that mode or I use it
+"			there.
+		elseif a:1 == '1' || a:1 ==? "c" || a:1 ==? "p"
+			let l:WhatToDo = 1
+			let l:IsInline = 0
+		elseif a:1 == '2' || a:1 ==? "i"
+			let l:WhatToDo = 1
+			let l:IsInline = 1
+		else
+			echo "GETSET: ERROR: Unknown option"
+			return
+		endif
+	endif
+"	echo confirm("l:WhatToDo:".l:WhatToDo)
+	" }}}
+
+	"Handle Options: {{{
+	if exists('g:getset_StyleOfGetSetMethod')
+		let StyleOfGetSetMethod		= g:getset_StyleOfGetSetMethod
+	else
+		let StyleOfGetSetMethod		= 0
+	endif
+
+	if exists('g:getset_StyleOfBraces')
+		let StyleOfBraces						= g:getset_StyleOfBraces
+	else
+		let StyleOfBraces						= 0
+	endif
+
+	if exists('g:getset_Trim_VarPrefix')
+		let Trim_VarPrefix						= g:getset_Trim_VarPrefix
+	else
+		let Trim_VarPrefix						= 1
+	endif
+
+	if exists('g:getset_Trim_MemberFunctionNameVarPrefix')
+		let Trim_MemberFunctionNameVarPrefix	= g:getset_Trim_MemberFunctionNameVarPrefix
+	else
+		let Trim_MemberFunctionNameVarPrefix	= 1
+	endif
+	" }}}
+
+	" Now do something!
+	if l:WhatToDo == 0
+		" {{{ Get the var...
 		" In a header file, lets ASSume we are on the line the user wants to
 		" make get/set member functions for; I.e. a line that contains a
 		" variable defintion
 
-		" save where we are
+		" save our position
 		let SaveL = line(".")
 		let SaveC = virtcol(".")
 		" :help restore-position
@@ -43,7 +180,8 @@ function! <SID>CppGetSet() "{{{
 		let SaveT = line('.')
 		execute ":normal! ".SaveL."G"
 
-		" get the var type and name from the line.
+
+		" get the var type and name from the line. {{{
 		let DaLine = getline(".")
 "		echo confirm('('.DaLine.')')
 
@@ -62,57 +200,58 @@ function! <SID>CppGetSet() "{{{
 			" the format for their get/set is different enough to special case
 			" (at least the set) and as I usually do not use them I'll stick
 			" to simplicity for now.
+			" [Feral:290/02@06:22] If YOU really need this email me with how
+			" it should look and I'll see what I can do with it.
 			return
 		endif
+		" }}}
 
 
 		" find what class this data member belongs to.
-		execute ":normal! [["
-		execute ":normal! kw"
-		let Was_Reg_c = @c
-		execute ':normal! "cye'
-		let s:ClassName = @c
-		let @c=Was_Reg_c
-"		echo confirm(s:ClassName)
+" {{{ Mark III (from copycppdectoimp.vim 0.43)
+		let s:ClassName = ""
+		let mx='\(\<class\>\|\<struct\>\|\<namespace\>\)\s\{-}\(\<\I\i*\)\s\{-}.*'
+		while 1
+			if searchpair('{','','}', 'bW') > 0
+				if search('\%(\<class\>\|\<struct\>\|\<namespace\>\).\{-}\n\=\s\{-}{', 'bW') > 0
+					let DaLine = getline('.')
+					let Lummox = matchstr(DaLine, mx)
+"					let s:ClassName = substitute(Lummox, mx, '\1', '') . '::' . s:ClassName
+					let FoundType = substitute(Lummox, mx, '\1', '')
+					let FoundClassName = substitute(Lummox, mx, '\2', '')
+"					echo confirm(FoundClassName.' is a '.FoundType)
+					if FoundType !=? 'namespace' && FoundType != ''
+						let s:ClassName = FoundClassName.'::'.s:ClassName
+					endif
+				else
+					echo confirm("cppgetset.vim:DEV:Found {} but no class/struct\nIf this was a proper function and you think it should have worked, email me the (member) function/class setup and I'll see if I can get it to work.(email is in this file)")
+				endif
+			else
+				break
+			endif
+		endwhile
+"		echo confirm('s:ClassName('.s:ClassName.')')
+" }}}
+
+		" {{{ make sure s:ClassName is not nothing (a distinct posibility)
+		if s:ClassName == ""
+			echo "GETSET does not work on non class data members at this time, suggestions and encouragement welcome :)"
+			return
+		endif
+		" }}}
 
 		" go back to where we were.
 		execute ":normal! ".SaveT."Gzt"
 		execute ":normal! ".SaveL."G"
 		execute ":normal! ".SaveC."|"
 
-
-""nmap <F5> "lYml[[kw"cye'l
-""		execute ":normal! ml"
-"		let SaveL = line(".")
-"		let SaveC = virtcol(".")
-"
-"		" into l yank the entire line
-"		" ([Feral:274/02@19:06] MY Y is mapped to y$, so I account for that below)
-"		:let Was_Reg_l = @l
-""		execute ':normal! "lY'
-"		execute ':normal! 0"ly$'
-""		echo confirm(@l)
-"		:let s:LineWithDecloration = @l
-"		:let @l=Was_Reg_l
-"
-"		" [Feral:274/02@14:41] this works peachy for a member function, not so
-"		" well for a normal function, how can we fix this? Or do we bother?
-"		execute ":normal! [["
-"		execute ":normal! kw"
-"		:let Was_Reg_c = @c
-"		execute ':normal! "cye'
-"		:let s:ClassName = @c
-"		:let @c=Was_Reg_c
-"
-""		execute ":normal! 'l"
-"		:execute ":normal! ".SaveL."G"
-"		:execute ":normal! ".SaveC."|"
-"
 "		echo confirm(s:ClassName)
+		" }}}
 	else
+		" {{{ Paste the get/set functions.
 "		echo confirm('('.s:VarType.')('.s:VarName.')('.s:ClassName.')')
 
-" {{{ Sample output from Tom Bast's javaGetSet.vim
+" {{{ NOTE: Sample output from Tom Bast's javaGetSet.vim
 "/**
 "* Get iLenBuffer.
 "*
@@ -135,112 +274,166 @@ function! <SID>CppGetSet() "{{{
 "}
 " }}}
 
-		" [Feral:276/02@13:32] I am picky about how my params should look (I
-		" like _<paramname>, i.e. _lFlags. So, if the s:VarName starts with 'm_'
-		" (a class data member) then strip the starting 'm' so we are left with
-		" a starting '_', i.e. m_lFlags becomes _lFlags, which is exactly what I
-		" want, else prepend '_' so lFlags would become _lFlags and _lFlags
-		" would become __lFlags.
-		if match(s:VarName, "m_") == 0
-			let ParamName = strpart(s:VarName, 1)
-		else
-			let ParamName = '_'.s:VarName
+		" -[Feral:290/02@06:29]--------------------------------------------
+		" Gate
+		if !exists("s:VarType")
+			echo "GETSET: ERROR: I do not have any variable data to work with!"
+			return
 		endif
+
+		" Fixup the param name {{{
+		" 1 = m_lFlags	->	_lFlags
+		"     mlFlags	->	_mlFlags
+		" 2 = m_lFlags	->	__lFlags
+		"     mlFlags	->	_mlFlags
+		" 3 = m_lFlags	->	m_lFlags
+		"     mlFlags	->	mlFlags
+		if Trim_VarPrefix == 1
+			if match(s:VarName, "m_") == 0
+				let ParamName = strpart(s:VarName, 1)
+			else
+				let ParamName = '_'.s:VarName
+			endif
+		elseif Trim_VarPrefix == 2
+				let ParamName = '_'.s:VarName
+		else
+				let ParamName = s:VarName
+		endif
+		" }}}
+
+		" Fixup the get/set name {{{
 		" [Feral:276/02@13:48] Now I find getm_lFlags to look well, odd. So if
 		" s:VarName starts with m_ get rid of it. i.e. getm_lFlags becomes
 		" getlFlags.
-		if match(s:VarName, "m_") == 0
-			let VarName = strpart(s:VarName, 2)
+		if Trim_MemberFunctionNameVarPrefix == 1
+			if match(s:VarName, '\<m_') == 0
+				let VarName = strpart(s:VarName, 2)
+			else
+				let VarName = s:VarName
+			endif
+		elseif Trim_MemberFunctionNameVarPrefix == 2
+			if match(s:VarName, '\<m') == 0
+				let VarName = strpart(s:VarName, 1)
+			else
+				let VarName = s:VarName
+			endif
 		else
 			let VarName = s:VarName
 		endif
+		" }}}
+
+		"Do Something With The Options: {{{
+		if StyleOfGetSetMethod == 0
+			let GetStr = "Get_"
+			let SetStr = "Set_"
+		else
+			let GetStr = "get"
+			let SetStr = "set"
+		endif
+
+		if StyleOfBraces == 0
+			" func()
+			" {
+			" }
+			let BraceStr = "\n{\n"
+		else
+			" func() {
+			" }
+			let BraceStr = " {\n"
+		endif
+		" }}}
+
+
+		" {{{ Handle inline part 1 -- remove the class name.
+		if l:IsInline == 1
+			let ClassName = ""
+		else
+			let ClassName = s:ClassName
+		endif
+		" }}}
+
+		" {{{ save/fill in register with our functions and then put it.
 		let Was_Reg_z = @z
+"[Feral:290/02@06:36] Get/set and whatever else should be an option.
+"	Actually, feeding s:VarName and s:VarType into a template could be best,
+"	but I'm not sure I want to goto that work :)
+		" Get Member Function:
 		let @z=   "// {{"."{\n"
 		let @z=@z."/*!\n"
 		let @z=@z." * \\brief\tGet ".s:VarName.".\n"
 		let @z=@z." *\n"
 		let @z=@z." * \\return\t".s:VarName." as a ".s:VarType.".\n"
 		let @z=@z." */ // }}"."}\n"
-"		let @z=@z.s:VarType." ".s:ClassName."::get".VarName."()\n"
-		let @z=@z.s:VarType." ".s:ClassName."::Get_".VarName."()\n"
-		let @z=@z."{\n"
+		let @z=@z.s:VarType." ".ClassName.GetStr.VarName."()".BraceStr
 		let @z=@z."\treturn(".s:VarName.");\n"
 		let @z=@z."}\n"
-		let @z=@z."\n"
+
+		" If we are inline, skip the two spaces seperating the memberfunctions
+		"	so that they are grouped nicly in the class.
+		if l:IsInline != 1
+			let @z=@z."\n"
+"			put z
+"			let @z=   "\n"
+			let @z=@z."\n"
+		endif
+
+		" Set Member Function:
 		let @z=@z."// {{"."{\n"
 		let @z=@z."/*!\n"
 		let @z=@z." * \\brief\tSet ".s:VarName.".\n"
 		let @z=@z." *\n"
 		let @z=@z." * \\param\t".ParamName."\tThe new value for ".s:VarName." (as a ".s:VarType.").\n"
 		let @z=@z." */ // }}"."}\n"
-"		let @z=@z."void ".s:ClassName."::set".VarName."(".s:VarType." ".ParamName.")\n"
-		let @z=@z."void ".s:ClassName."::Set_".VarName."(".s:VarType." ".ParamName.")\n"
-		let @z=@z."{\n"
+		let @z=@z."void ".ClassName.SetStr.VarName."(".s:VarType." ".ParamName.")".BraceStr
 		let @z=@z."\t".s:VarName." = ".ParamName.";\n"
 		let @z=@z."\treturn;\n"
 		let @z=@z."}\n"
 		let @z=@z."\n"
-		put z
+		put! z
+
 		let @z=Was_Reg_z
+		" }}}
 
-"		let SaveL = line(".")
-"		let SaveC = virtcol(".")
-""		:execute ':normal! ma'
-"		:let Was_Reg_n = @n
-"		:let @n=@/
-"		:execute ':normal! O'.s:LineWithDecloration
-"		:execute ':normal! =='
-"
-"		" XXX if you want virtual commented in the implimentation:
-"		if a:howtoshowVirtual == 1
-"			:s/\<virtual\>/\/\*&\*\//e
-"		else
-"			" XXX else, remove virtual and any spaces/tabs after it.
-"			:s/\<virtual\>\s*//e
-"		endif
-"
-"		" XXX if you want static commented in the implimentation:
-"		if a:howtoshowStatic == 1
-"			:s/\<static\>/\/\*&\*\//e
-"		else
-"			" XXX else, remove static and any spaces/tabs after it.
-"			:s/\<static\>\s*//e
-"		endif
-"
-"
-"		" wipe out a pure virtual thingie-ma-bob. (technical term? (= )
-"		:s/\s*=\s*0\s*//e
-"
-"		" Handle default params, if any.
-"		if a:howtoshowDefaultParams == 1
-"			" Remove the default param assignments.
-"			:s/\s\{-}=\s\{-}[^,)]\{1,}//ge
-"		else
-"			" Comment the default param assignments.
-"			:s/\s\{-}\(=\s\{-}[^,)]\{1,}\)/\/\*\1\*\//ge
-"
-"			if a:howtoshowDefaultParams == 3
-"				" Remove the = and any spaces to the left or right.
-"				:s/\s*=\s*//ge
-"			endif
-"		endif
-"
-"		:let @/=@n
-"		:let @n=Was_Reg_n
-"		:execute ":normal! ".SaveL."G"
-"		:execute ":normal! ".SaveC."|"
-"		:execute ':normal! f(b'
-"		:execute ':normal! i'.s:ClassName.'::'
-"
-"		" find the ending ; and replace it with a brace structure on the next line.
-"		:execute ":normal! f;s\<cr>{\<cr>}\<cr>\<esc>kk"
+		" {{{ Handle inline part 2 -- = the inserted text.
+		if l:IsInline == 1
+			execute "normal! =']"
+		endif
+		" }}}
+
+		" }}}
 	endif
-endfunc
+
+endfunction
 "}}}
+endif
+" }}}
 
 "*****************************************************************
-"* Commands
+" Commands: {{{
 "*****************************************************************
-:command! -nargs=0 GETSET call <SID>CppGetSet()
 
-" eof
+" GETSET Usage: {{{
+"	Simply :GETSET with your cursor on the variable you wish to process, and
+"	:GETSET will attempt to be smart and either get the data or put the
+"	member functions depending on the file extension it was called from. If
+"	you wish to overide this behavior simply place g (to get) or p (to put) on
+"	the command line (or as a param to <SID>CppGetSet())
+"	In Header:
+"		:GETSET
+"	In Source:
+"		:GETSET
+"	Inline Member Functions:
+"		:GETSET i
+"	Putting The Member Functions While In A Header:
+"		:GETSET p
+"	Getting The Variables While In A Source File:
+"		:GETSET g
+" }}}
+if !exists(":GETSET")
+:command -buffer -nargs=? GETSET call <SID>CppGetSet(<f-args>)
+endif
+
+"*****************************************************************
+" }}}
+"
+" EOF
